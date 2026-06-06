@@ -176,18 +176,32 @@ def _proxy_config() -> Optional[dict]:
         return None
 
 
-async def fetch(url: str, timeout: float = 30.0, polite_delay: bool = True) -> Optional[str]:
-    """Fetch a URL using a stealthed headless Chromium via Playwright.
-
-    Playwright executes JavaScript and presents a real browser fingerprint,
-    so it can pass through anti-bot services like DataDome _provided_ the
-    egress IP isn't already flagged. If the page returns a non-2xx status
-    (including DataDome's 403 challenge), we log the server header and
-    return None so the caller can degrade gracefully.
+async def fetch(url: str, timeout: float = 60.0, polite_delay: bool = True) -> Optional[str]:
+    """Fetch a URL via ScraperAPI when SCRAPERAPI_KEY is set; otherwise via
+    a stealthed headless Chromium. ScraperAPI handles DataDome/IP-rotation
+    on their side, so this is the path that actually works against Etsy.
     """
     if polite_delay:
         await asyncio.sleep(random.uniform(2.0, 3.0))
 
+    api_key = os.environ.get("SCRAPERAPI_KEY")
+    if api_key:
+        endpoint = "http://api.scraperapi.com"
+        params = {"api_key": api_key, "url": url}
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                r = await client.get(endpoint, params=params)
+                if r.status_code >= 400:
+                    logger.warning(
+                        f"ScraperAPI {url} -> {r.status_code} body={r.text[:200]!r}"
+                    )
+                    return None
+                return r.text
+        except Exception as e:
+            logger.warning(f"ScraperAPI error {url}: {e}")
+            return None
+
+    # Fallback: Playwright + stealth (used when no ScraperAPI key)
     browser = await get_browser()
     if browser is None:
         return None
@@ -209,7 +223,6 @@ async def fetch(url: str, timeout: float = 30.0, polite_delay: bool = True) -> O
         try:
             await stealth_async(page)
         except Exception:
-            # Stealth shim failure shouldn't kill the fetch
             pass
         response = await page.goto(
             url, wait_until="domcontentloaded", timeout=int(timeout * 1000)
@@ -219,15 +232,13 @@ async def fetch(url: str, timeout: float = 30.0, polite_delay: bool = True) -> O
             srv = response.headers.get("server", "?") if response else "?"
             logger.warning(f"Fetch {url} -> {status} (server={srv})")
             return None
-        # Give JSON-LD / hydration a beat to land
         try:
             await page.wait_for_selector(
                 'script[type="application/ld+json"]', timeout=5000
             )
         except Exception:
             pass
-        html = await page.content()
-        return html
+        return await page.content()
     except Exception as e:
         logger.warning(f"Fetch error {url}: {e}")
         return None
