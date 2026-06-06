@@ -56,6 +56,7 @@ export default function Header() {
               size="sm"
               onClick={handleLogout}
               data-testid="logout-btn"
+              aria-label="Logout"
               className="text-foreground/70 hover:text-foreground"
             >
               <LogOut className="w-4 h-4" />

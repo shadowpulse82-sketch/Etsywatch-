@@ -6,7 +6,7 @@ export const API = `${BACKEND_URL}/api`;
 const SESSION_KEY = "etsywatch_email";
 
 export const getSession = () => localStorage.getItem(SESSION_KEY);
-export const setSession = (email) => localStorage.setItem(SESSION_KEY, email);
+export const setSession = (email) => localStorage.setItem(SESSION_KEY, (email || "").toLowerCase());
 export const clearSession = () => localStorage.removeItem(SESSION_KEY);
 
 const client = axios.create({ baseURL: API });
