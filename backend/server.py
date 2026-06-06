@@ -153,6 +153,29 @@ def _browser_headers() -> dict:
     }
 
 
+def _proxy_config() -> Optional[dict]:
+    """Parse SCRAPER_PROXY env var into a Playwright proxy config dict."""
+    raw = os.environ.get("SCRAPER_PROXY") or os.environ.get("HTTP_PROXY")
+    if not raw:
+        return None
+    try:
+        parsed = urllib.parse.urlparse(raw)
+        if not parsed.hostname:
+            return None
+        scheme = parsed.scheme or "http"
+        port = f":{parsed.port}" if parsed.port else ""
+        server = f"{scheme}://{parsed.hostname}{port}"
+        cfg = {"server": server}
+        if parsed.username:
+            cfg["username"] = urllib.parse.unquote(parsed.username)
+        if parsed.password:
+            cfg["password"] = urllib.parse.unquote(parsed.password)
+        return cfg
+    except Exception as e:
+        logger.warning(f"Bad SCRAPER_PROXY: {e}")
+        return None
+
+
 async def fetch(url: str, timeout: float = 30.0, polite_delay: bool = True) -> Optional[str]:
     """Fetch a URL using a stealthed headless Chromium via Playwright.
 
@@ -171,13 +194,17 @@ async def fetch(url: str, timeout: float = 30.0, polite_delay: bool = True) -> O
 
     context = None
     try:
-        context = await browser.new_context(
+        ctx_kwargs = dict(
             user_agent=random.choice(USER_AGENTS),
             viewport={"width": 1280, "height": 800},
             locale="en-US",
             timezone_id="America/New_York",
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
         )
+        proxy_cfg = _proxy_config()
+        if proxy_cfg:
+            ctx_kwargs["proxy"] = proxy_cfg
+        context = await browser.new_context(**ctx_kwargs)
         page = await context.new_page()
         try:
             await stealth_async(page)
@@ -231,7 +258,7 @@ async def get_browser() -> Optional[PWBrowser]:
         try:
             if _playwright is None:
                 _playwright = await async_playwright().start()
-            _browser = await _playwright.chromium.launch(
+            launch_kwargs = dict(
                 headless=True,
                 args=[
                     "--no-sandbox",
@@ -239,6 +266,11 @@ async def get_browser() -> Optional[PWBrowser]:
                     "--disable-blink-features=AutomationControlled",
                 ],
             )
+            proxy_cfg = _proxy_config()
+            if proxy_cfg:
+                launch_kwargs["proxy"] = proxy_cfg
+                logger.info(f"Launching Chromium via proxy {proxy_cfg['server']}")
+            _browser = await _playwright.chromium.launch(**launch_kwargs)
             logger.info("Playwright Chromium launched.")
             return _browser
         except Exception as e:
