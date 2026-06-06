@@ -1,0 +1,112 @@
+{
+  "theme": "Light",
+  "archetype": "4 (Swiss & High-Contrast) adapted for custom green accent",
+  "design_philosophy": {
+    "vibe": "Clean, minimal, professional, trustworthy, serious.",
+    "rationale": "This tool protects Etsy sellers' businesses and income. The UI must inspire confidence through pristine spacing, sharp typography, and a lack of visual clutter. The stark white background with a highly specific green accent grounds the interface."
+  },
+  "colors": {
+    "css_variables_update": {
+      "--background": "0 0% 100%",
+      "--foreground": "0 0% 10%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "0 0% 10%",
+      "--popover": "0 0% 100%",
+      "--popover-foreground": "0 0% 10%",
+      "--primary": "156 55% 39%",
+      "--primary-foreground": "0 0% 100%",
+      "--secondary": "0 0% 96%",
+      "--secondary-foreground": "0 0% 10%",
+      "--muted": "0 0% 96%",
+      "--muted-foreground": "0 0% 45%",
+      "--accent": "156 55% 95%",
+      "--accent-foreground": "156 55% 39%",
+      "--destructive": "0 84% 60%",
+      "--destructive-foreground": "0 0% 100%",
+      "--border": "0 0% 90%",
+      "--input": "0 0% 90%",
+      "--ring": "156 55% 39%",
+      "--radius": "0.25rem"
+    },
+    "core": {
+      "primary": "#2D9B6F",
+      "background": "#FFFFFF",
+      "text": "#1A1A1A"
+    }
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Outfit, sans-serif",
+      "characteristics": "Clean, geometric, authoritative yet modern.",
+      "weights": ["400", "500", "600", "700"],
+      "tracking": "tracking-tight",
+      "h1_max": "text-4xl sm:text-5xl lg:text-5xl"
+    },
+    "body": {
+      "font_family": "Plus Jakarta Sans, sans-serif",
+      "characteristics": "Highly legible, professional, neutral.",
+      "weights": ["400", "500", "600"],
+      "tracking": "tracking-normal"
+    },
+    "notes": "Do not use Inter or Roboto. Follow the hierarchy gap rule. Avoid overly bold headers; use medium or semi-bold for elegance."
+  },
+  "layout_spacing": {
+    "philosophy": "Generous spacing. Use 2-3x more spacing than typical designs. Use p-8 or p-12 for main containers.",
+    "grids": {
+      "marketing": "Asymmetrical, spacious. Use gap-8 to gap-12. Allow negative space.",
+      "dashboard": "Tight, dense, structured. Use gap-4 or gap-6. Every pixel utilized."
+    },
+    "alignment": "Left-align forms, dense content, and data tables. Center-align hero headers only if balanced."
+  },
+  "surfaces_and_components": {
+    "cards": "Flat solid backgrounds. 1px border-border. No heavy drop shadows. Radius max 4px (rounded-sm).",
+    "header": "Solid white background with 1px hard bottom border (border-border).",
+    "buttons": "Subtle radius (rounded-sm). Primary button uses #2D9B6F. Ensure hover state is lighter or has a subtle opacity change.",
+    "inputs": "Shadcn defaults but with rounded-sm, border-border, and focus-visible:ring-primary.",
+    "badges": {
+      "watching": "bg-[#2D9B6F]/10 text-[#2D9B6F] border-[#2D9B6F]/20",
+      "price_changed": "bg-yellow-100 text-yellow-800 border-yellow-200",
+      "copy_detected": "bg-red-100 text-red-800 border-red-200"
+    }
+  },
+  "animation_motion": {
+    "strategy": "Minimalist. Micro-interactions for feedback.",
+    "hover": "Subtle lift (-translate-y-[1px]) or slight border color darken for cards. Explicit hover text colors.",
+    "transitions": "transition-colors duration-200 ease-in-out"
+  },
+  "icons_library": "lucide-react",
+  "media_assets": {
+    "image_urls": {
+      "hero_accent": {
+        "url": "https://images.pexels.com/photos/8092310/pexels-photo-8092310.jpeg",
+        "description": "Minimal clean white desk with plant. Use as an accent or split-screen background on the landing page if visual interest is needed without clutter."
+      },
+      "evidence_screenshot_1": {
+        "url": "https://images.unsplash.com/photo-1691096675075-de995918f3ce?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxlY29tbWVyY2UlMjBwcm9kdWN0JTIwcGhvdG9ncmFwaHl8ZW58MHx8fHwxNzgwNzM0OTE5fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Mock screenshot of an Etsy product listing (Evidence Vault)"
+      },
+      "evidence_screenshot_2": {
+        "url": "https://images.unsplash.com/photo-1691096674730-2b5fb28b726f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHw0fHxlY29tbWVyY2UlMjBwcm9kdWN0JTIwcGhvdG9ncmFwaHl8ZW58MHx8fHwxNzgwNzM0OTE5fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Mock screenshot of an Etsy product listing (Evidence Vault)"
+      },
+      "evidence_screenshot_3": {
+        "url": "https://images.unsplash.com/photo-1691096671014-b00e1923d288?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwyfHxlY29tbWVyY2UlMjBwcm9kdWN0JTIwcGhvdG9ncmFwaHl8ZW58MHx8fHwxNzgwNzM0OTE5fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Mock screenshot of an Etsy product listing (Evidence Vault)"
+      },
+      "evidence_screenshot_4": {
+        "url": "https://images.unsplash.com/photo-1691096674326-74cfe19c04cc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwzfHxlY29tbWVyY2UlMjBwcm9kdWN0JTIwcGhvdG9ncmFwaHl8ZW58MHx8fHwxNzgwNzM0OTE5fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Mock screenshot of an Etsy product listing (Evidence Vault)"
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "Load Google Fonts: 'Outfit' (Headings) and 'Plus Jakarta Sans' (Body). Do not use Inter.",
+    "Update tailwind.config.js to include font families and modify index.css with the exact CSS variables provided.",
+    "Ensure the primary accent #2D9B6F is strictly used for the most important actions to keep the minimal aesthetic.",
+    "Dashboard table should be clean, dense, using Shadcn Table without outer card shadows.",
+    "Include 'data-testid' on all interactive elements (buttons, inputs, toggles, row actions).",
+    "Evidence Vault page must display a grid of the provided evidence screenshot URLs.",
+    "Alert settings toggles should use Shadcn Switch components.",
+    "Do not use transparent headers over any content; ensure header is solid white with a bottom border."
+  ]
+}
