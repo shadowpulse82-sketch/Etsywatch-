@@ -7,6 +7,8 @@ import os
 import asyncio
 import logging
 import re
+import json
+import random
 import uuid
 import hashlib
 import urllib.parse
@@ -120,22 +122,45 @@ async def get_current_user(
 
 # ---------- Scraping ----------
 
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
-
-HTTP_HEADERS = {
-    "User-Agent": USER_AGENT,
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
+USER_AGENTS = [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+]
 
 
-async def fetch(url: str, timeout: float = 15.0) -> Optional[str]:
+def _browser_headers() -> dict:
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Sec-Ch-Ua": '"Chromium";v="124", "Not_A Brand";v="99"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"macOS"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "Referer": "https://www.google.com/",
+        "DNT": "1",
+    }
+
+
+async def fetch(url: str, timeout: float = 20.0, polite_delay: bool = True) -> Optional[str]:
+    if polite_delay:
+        # Random 2-3s delay before scraping to look human / avoid throttling
+        await asyncio.sleep(random.uniform(2.0, 3.0))
     try:
         async with httpx.AsyncClient(
-            timeout=timeout, follow_redirects=True, headers=HTTP_HEADERS
+            timeout=timeout,
+            follow_redirects=True,
+            headers=_browser_headers(),
+            http2=False,
         ) as client:
             r = await client.get(url)
             if r.status_code >= 400:
@@ -151,30 +176,132 @@ def _text(el) -> str:
     return el.get_text(strip=True) if el else ""
 
 
+def _iter_jsonld(soup: BeautifulSoup):
+    """Yield each parsed JSON-LD object embedded on the page."""
+    for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = tag.string or tag.get_text() or ""
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    yield item
+        elif isinstance(data, dict):
+            if "@graph" in data and isinstance(data["@graph"], list):
+                for item in data["@graph"]:
+                    if isinstance(item, dict):
+                        yield item
+            else:
+                yield data
+
+
+def _extract_product_from_jsonld(soup: BeautifulSoup) -> dict:
+    """Find the first JSON-LD Product node and pull title/price/seller."""
+    out = {"title": "", "price": "", "seller_name": ""}
+    for node in _iter_jsonld(soup):
+        type_val = node.get("@type")
+        types = type_val if isinstance(type_val, list) else [type_val]
+        if not any(t == "Product" for t in types if t):
+            continue
+
+        if not out["title"]:
+            name = node.get("name")
+            if isinstance(name, str):
+                out["title"] = name.strip()
+
+        # Brand or seller from Product
+        brand = node.get("brand")
+        if isinstance(brand, dict):
+            bname = brand.get("name")
+            if isinstance(bname, str) and not out["seller_name"]:
+                out["seller_name"] = bname.strip()
+        elif isinstance(brand, str) and not out["seller_name"]:
+            out["seller_name"] = brand.strip()
+
+        # Offers can be Offer or AggregateOffer (or list)
+        offers = node.get("offers")
+        offer_list = []
+        if isinstance(offers, list):
+            offer_list = offers
+        elif isinstance(offers, dict):
+            offer_list = [offers]
+
+        for offer in offer_list:
+            if not isinstance(offer, dict):
+                continue
+            currency = offer.get("priceCurrency") or "USD"
+            # AggregateOffer fields
+            amount = (
+                offer.get("price")
+                or offer.get("lowPrice")
+                or offer.get("highPrice")
+            )
+            if amount is not None and amount != "":
+                out["price"] = f"{currency} {amount}"
+                break
+
+            # Nested priceSpecification
+            spec = offer.get("priceSpecification")
+            if isinstance(spec, dict):
+                amount = spec.get("price")
+                cur = spec.get("priceCurrency") or currency
+                if amount is not None and amount != "":
+                    out["price"] = f"{cur} {amount}"
+                    break
+
+            seller = offer.get("seller")
+            if isinstance(seller, dict) and not out["seller_name"]:
+                sname = seller.get("name")
+                if isinstance(sname, str):
+                    out["seller_name"] = sname.strip()
+
+        if out["title"] or out["price"]:
+            break
+    return out
+
+
 def parse_listing(html: str) -> dict:
-    """Best-effort parse of an Etsy listing page."""
+    """Best-effort parse of an Etsy listing page.
+
+    Strategy: prefer structured JSON-LD Product data (most reliable), fall back
+    to OG meta tags, then visible HTML selectors.
+    """
     soup = BeautifulSoup(html, "lxml")
     title = ""
     price = ""
     seller = ""
 
-    og_title = soup.find("meta", property="og:title")
-    if og_title and og_title.get("content"):
-        title = og_title["content"].strip()
+    # 1) JSON-LD Product (most reliable - Etsy embeds it)
+    jl = _extract_product_from_jsonld(soup)
+    title = jl["title"]
+    price = jl["price"]
+    seller = jl["seller_name"]
+
+    # 2) OG meta fallbacks
+    if not title:
+        og_title = soup.find("meta", property="og:title")
+        if og_title and og_title.get("content"):
+            title = og_title["content"].strip()
     if not title:
         h1 = soup.find("h1")
         title = _text(h1)
 
-    # Price - look for typical Etsy price classes/data attributes
-    price_meta = soup.find("meta", property="product:price:amount") or soup.find(
-        "meta", property="og:price:amount"
-    )
-    if price_meta and price_meta.get("content"):
-        currency = soup.find("meta", property="product:price:currency") or soup.find(
-            "meta", property="og:price:currency"
+    if not price:
+        price_meta = soup.find("meta", property="product:price:amount") or soup.find(
+            "meta", property="og:price:amount"
         )
-        cur = currency.get("content").strip() if currency and currency.get("content") else "USD"
-        price = f"{cur} {price_meta['content'].strip()}"
+        if price_meta and price_meta.get("content"):
+            currency = soup.find("meta", property="product:price:currency") or soup.find(
+                "meta", property="og:price:currency"
+            )
+            cur = currency.get("content").strip() if currency and currency.get("content") else "USD"
+            price = f"{cur} {price_meta['content'].strip()}"
+
     if not price:
         # try price wp-price selectors
         candidates = soup.select(
@@ -187,9 +314,9 @@ def parse_listing(html: str) -> dict:
                 price = text
                 break
 
-    # Seller name
-    shop_link = soup.find("a", attrs={"href": re.compile(r"/shop/")})
-    seller = _text(shop_link)
+    if not seller:
+        shop_link = soup.find("a", attrs={"href": re.compile(r"/shop/")})
+        seller = _text(shop_link)
     if not seller:
         shop_meta = soup.find("meta", attrs={"name": "shop_name"})
         if shop_meta and shop_meta.get("content"):
