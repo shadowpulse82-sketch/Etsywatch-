@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Send } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -19,6 +19,7 @@ export default function AlertSettings() {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
 
   useEffect(() => {
     if (!getSession()) {
@@ -51,6 +52,22 @@ export default function AlertSettings() {
       toast.error(err?.response?.data?.detail || "Save failed");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const sendTest = async () => {
+    setSendingTest(true);
+    try {
+      const res = await client.post("/alerts/test");
+      if (res.data.mocked) {
+        toast.info(`Test email logged (no Resend key set). Recipient: ${res.data.to}`);
+      } else {
+        toast.success(`Sample alert sent to ${res.data.to}. Check your inbox.`);
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Test send failed");
+    } finally {
+      setSendingTest(false);
     }
   };
 
@@ -153,7 +170,7 @@ export default function AlertSettings() {
             />
           </div>
 
-          <div className="pt-4">
+          <div className="pt-4 flex flex-wrap items-center gap-3">
             <Button
               onClick={save}
               disabled={saving}
@@ -167,6 +184,25 @@ export default function AlertSettings() {
               )}
               Save changes
             </Button>
+
+            <Button
+              variant="outline"
+              onClick={sendTest}
+              disabled={sendingTest}
+              data-testid="send-test-email-btn"
+              className="rounded-sm border-border"
+            >
+              {sendingTest ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              Send test email
+            </Button>
+
+            <p className="text-xs text-muted-foreground">
+              Fires a sample price-change alert to your inbox.
+            </p>
           </div>
         </div>
       </main>

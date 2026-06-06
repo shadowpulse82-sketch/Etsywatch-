@@ -802,6 +802,26 @@ async def check_now(current: User = Depends(get_current_user)):
     return {"checked": n}
 
 
+@api_router.post("/alerts/test")
+async def send_test_alert(current: User = Depends(get_current_user)):
+    """Fire a sample price-change alert email to the logged-in user."""
+    sample_listing = {
+        "title": "Handmade Linen Apron — Natural",
+        "url": "https://www.etsy.com/listing/000000000/sample",
+    }
+    subject, body = render_price_change_email(
+        sample_listing, old_price="USD 28.00", new_price="USD 19.00"
+    )
+    sent = await send_email(current.email, subject, body)
+    if not sent:
+        raise HTTPException(status_code=502, detail="Email send failed (check backend logs)")
+    return {
+        "sent": True,
+        "to": current.email,
+        "mocked": not bool(RESEND_API_KEY),
+    }
+
+
 @api_router.get("/settings")
 async def get_settings(current: User = Depends(get_current_user)):
     return {
