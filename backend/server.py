@@ -19,6 +19,7 @@ from typing import List, Optional, Annotated
 
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import httpx
+from curl_cffi.requests import AsyncSession as CurlAsyncSession
 from bs4 import BeautifulSoup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -152,19 +153,36 @@ def _browser_headers() -> dict:
 
 
 async def fetch(url: str, timeout: float = 20.0, polite_delay: bool = True) -> Optional[str]:
+    """Fetch a URL using curl_cffi with Chrome TLS impersonation.
+
+    curl_cffi mimics Chrome's TLS/JA3 fingerprint and HTTP/2 settings, which
+    bypasses lightweight bot filters that block requests/httpx. Anti-bot
+    services like DataDome (which Etsy uses) may still block based on IP
+    reputation — in that case, set HTTP_PROXY in env to a residential proxy.
+    """
     if polite_delay:
-        # Random 2-3s delay before scraping to look human / avoid throttling
         await asyncio.sleep(random.uniform(2.0, 3.0))
+
+    proxies = None
+    proxy_url = os.environ.get("SCRAPER_PROXY") or os.environ.get("HTTP_PROXY")
+    if proxy_url:
+        proxies = {"http": proxy_url, "https": proxy_url}
+
     try:
-        async with httpx.AsyncClient(
+        async with CurlAsyncSession(
+            impersonate="chrome124",
             timeout=timeout,
-            follow_redirects=True,
-            headers=_browser_headers(),
-            http2=False,
-        ) as client:
-            r = await client.get(url)
+            proxies=proxies,
+        ) as session:
+            r = await session.get(
+                url,
+                headers=_browser_headers(),
+                allow_redirects=True,
+            )
             if r.status_code >= 400:
-                logger.warning(f"Fetch {url} -> {r.status_code}")
+                logger.warning(
+                    f"Fetch {url} -> {r.status_code} (server={r.headers.get('server', '?')})"
+                )
                 return None
             return r.text
     except Exception as e:
