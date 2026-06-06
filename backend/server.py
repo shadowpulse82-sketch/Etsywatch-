@@ -19,9 +19,10 @@ from typing import List, Optional, Annotated
 
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import httpx
-from curl_cffi.requests import AsyncSession as CurlAsyncSession
 from bs4 import BeautifulSoup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from playwright.async_api import async_playwright, Browser as PWBrowser
+from playwright_stealth import stealth_async
 
 
 ROOT_DIR = Path(__file__).parent
@@ -152,46 +153,110 @@ def _browser_headers() -> dict:
     }
 
 
-async def fetch(url: str, timeout: float = 20.0, polite_delay: bool = True) -> Optional[str]:
-    """Fetch a URL using curl_cffi with Chrome TLS impersonation.
+async def fetch(url: str, timeout: float = 30.0, polite_delay: bool = True) -> Optional[str]:
+    """Fetch a URL using a stealthed headless Chromium via Playwright.
 
-    curl_cffi mimics Chrome's TLS/JA3 fingerprint and HTTP/2 settings, which
-    bypasses lightweight bot filters that block requests/httpx. Anti-bot
-    services like DataDome (which Etsy uses) may still block based on IP
-    reputation — in that case, set HTTP_PROXY in env to a residential proxy.
+    Playwright executes JavaScript and presents a real browser fingerprint,
+    so it can pass through anti-bot services like DataDome _provided_ the
+    egress IP isn't already flagged. If the page returns a non-2xx status
+    (including DataDome's 403 challenge), we log the server header and
+    return None so the caller can degrade gracefully.
     """
     if polite_delay:
         await asyncio.sleep(random.uniform(2.0, 3.0))
 
-    proxies = None
-    proxy_url = os.environ.get("SCRAPER_PROXY") or os.environ.get("HTTP_PROXY")
-    if proxy_url:
-        proxies = {"http": proxy_url, "https": proxy_url}
+    browser = await get_browser()
+    if browser is None:
+        return None
 
+    context = None
     try:
-        async with CurlAsyncSession(
-            impersonate="chrome124",
-            timeout=timeout,
-            proxies=proxies,
-        ) as session:
-            r = await session.get(
-                url,
-                headers=_browser_headers(),
-                allow_redirects=True,
+        context = await browser.new_context(
+            user_agent=random.choice(USER_AGENTS),
+            viewport={"width": 1280, "height": 800},
+            locale="en-US",
+            timezone_id="America/New_York",
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+        )
+        page = await context.new_page()
+        try:
+            await stealth_async(page)
+        except Exception:
+            # Stealth shim failure shouldn't kill the fetch
+            pass
+        response = await page.goto(
+            url, wait_until="domcontentloaded", timeout=int(timeout * 1000)
+        )
+        status = response.status if response else 0
+        if status and status >= 400:
+            srv = response.headers.get("server", "?") if response else "?"
+            logger.warning(f"Fetch {url} -> {status} (server={srv})")
+            return None
+        # Give JSON-LD / hydration a beat to land
+        try:
+            await page.wait_for_selector(
+                'script[type="application/ld+json"]', timeout=5000
             )
-            if r.status_code >= 400:
-                logger.warning(
-                    f"Fetch {url} -> {r.status_code} (server={r.headers.get('server', '?')})"
-                )
-                return None
-            return r.text
+        except Exception:
+            pass
+        html = await page.content()
+        return html
     except Exception as e:
         logger.warning(f"Fetch error {url}: {e}")
         return None
+    finally:
+        if context is not None:
+            try:
+                await context.close()
+            except Exception:
+                pass
 
 
 def _text(el) -> str:
     return el.get_text(strip=True) if el else ""
+
+
+# Shared Playwright browser (singleton) - lazy launch, kept across requests
+_playwright = None
+_browser: Optional[PWBrowser] = None
+_browser_lock = asyncio.Lock()
+
+
+async def get_browser() -> Optional[PWBrowser]:
+    """Lazy-launch and return a shared Chromium browser."""
+    global _playwright, _browser
+    async with _browser_lock:
+        if _browser is not None and _browser.is_connected():
+            return _browser
+        try:
+            if _playwright is None:
+                _playwright = await async_playwright().start()
+            _browser = await _playwright.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                ],
+            )
+            logger.info("Playwright Chromium launched.")
+            return _browser
+        except Exception as e:
+            logger.error(f"Playwright launch failed: {e}")
+            return None
+
+
+async def shutdown_browser():
+    global _playwright, _browser
+    try:
+        if _browser is not None:
+            await _browser.close()
+            _browser = None
+        if _playwright is not None:
+            await _playwright.stop()
+            _playwright = None
+    except Exception as e:
+        logger.warning(f"Browser shutdown error: {e}")
 
 
 def _iter_jsonld(soup: BeautifulSoup):
@@ -764,6 +829,7 @@ async def on_shutdown():
     global scheduler
     if scheduler:
         scheduler.shutdown(wait=False)
+    await shutdown_browser()
     mongo_client.close()
 
 
