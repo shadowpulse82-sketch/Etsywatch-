@@ -36,6 +36,7 @@ db = mongo_client[os.environ['DB_NAME']]
 # Resend (optional)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+ADMIN_NOTIFY_EMAIL = os.environ.get('ADMIN_NOTIFY_EMAIL', '')
 if RESEND_API_KEY:
     import resend
     resend.api_key = RESEND_API_KEY
@@ -729,6 +730,27 @@ async def root():
     return {"service": "EtsyWatch", "status": "ok"}
 
 
+def render_signup_admin_email(user_email: str, signup_time: str) -> tuple[str, str]:
+    subject = f"🎉 New EtsyWatch signup: {user_email}"
+    body = f"""
+    <div style="font-family: Arial, sans-serif; color:#1a1a1a; max-width:560px; margin:auto;">
+      <h2 style="color:#2D9B6F;">New EtsyWatch signup</h2>
+      <table style="border-collapse:collapse; margin:16px 0;">
+        <tr>
+          <td style="padding:8px 16px; border:1px solid #ddd;">Email</td>
+          <td style="padding:8px 16px; border:1px solid #ddd;"><strong>{user_email}</strong></td>
+        </tr>
+        <tr>
+          <td style="padding:8px 16px; border:1px solid #ddd;">Signed up at</td>
+          <td style="padding:8px 16px; border:1px solid #ddd;">{signup_time}</td>
+        </tr>
+      </table>
+      <p style="color:#666; font-size:12px;">Automated notification from EtsyWatch.</p>
+    </div>
+    """
+    return subject, body
+
+
 @api_router.post("/auth/signup")
 async def signup(payload: SignupRequest):
     email = payload.email.lower()
@@ -737,6 +759,13 @@ async def signup(payload: SignupRequest):
         return {"email": email, "new": False, "user": existing}
     user = User(email=email)
     await db.users.insert_one(user.model_dump())
+    # Fire-and-forget admin notification
+    if ADMIN_NOTIFY_EMAIL:
+        try:
+            subject, body = render_signup_admin_email(email, user.created_at)
+            await send_email(ADMIN_NOTIFY_EMAIL, subject, body)
+        except Exception as e:
+            logger.warning(f"Admin signup notify failed: {e}")
     return {"email": email, "new": True, "user": user.model_dump()}
 
 
