@@ -21,8 +21,6 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import httpx
 from bs4 import BeautifulSoup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from playwright.async_api import async_playwright, Browser as PWBrowser
-from playwright_stealth import stealth_async
 
 
 ROOT_DIR = Path(__file__).parent
@@ -125,182 +123,37 @@ async def get_current_user(
 
 # ---------- Scraping ----------
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-]
-
-
-def _browser_headers() -> dict:
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Sec-Ch-Ua": '"Chromium";v="124", "Not_A Brand";v="99"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"macOS"',
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1",
-        "Referer": "https://www.google.com/",
-        "DNT": "1",
-    }
-
-
-def _proxy_config() -> Optional[dict]:
-    """Parse SCRAPER_PROXY env var into a Playwright proxy config dict."""
-    raw = os.environ.get("SCRAPER_PROXY") or os.environ.get("HTTP_PROXY")
-    if not raw:
-        return None
-    try:
-        parsed = urllib.parse.urlparse(raw)
-        if not parsed.hostname:
-            return None
-        scheme = parsed.scheme or "http"
-        port = f":{parsed.port}" if parsed.port else ""
-        server = f"{scheme}://{parsed.hostname}{port}"
-        cfg = {"server": server}
-        if parsed.username:
-            cfg["username"] = urllib.parse.unquote(parsed.username)
-        if parsed.password:
-            cfg["password"] = urllib.parse.unquote(parsed.password)
-        return cfg
-    except Exception as e:
-        logger.warning(f"Bad SCRAPER_PROXY: {e}")
-        return None
-
-
-async def fetch(url: str, timeout: float = 60.0, polite_delay: bool = True) -> Optional[str]:
-    """Fetch a URL via ScraperAPI when SCRAPERAPI_KEY is set; otherwise via
-    a stealthed headless Chromium. ScraperAPI handles DataDome/IP-rotation
-    on their side, so this is the path that actually works against Etsy.
-    """
-    if polite_delay:
-        await asyncio.sleep(random.uniform(2.0, 3.0))
-
-    api_key = os.environ.get("SCRAPERAPI_KEY")
-    if api_key:
-        endpoint = "http://api.scraperapi.com"
-        params = {"api_key": api_key, "url": url}
-        try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                r = await client.get(endpoint, params=params)
-                if r.status_code >= 400:
-                    logger.warning(
-                        f"ScraperAPI {url} -> {r.status_code} body={r.text[:200]!r}"
-                    )
-                    return None
-                return r.text
-        except Exception as e:
-            logger.warning(f"ScraperAPI error {url}: {e}")
-            return None
-
-    # Fallback: Playwright + stealth (used when no ScraperAPI key)
-    browser = await get_browser()
-    if browser is None:
-        return None
-
-    context = None
-    try:
-        ctx_kwargs = dict(
-            user_agent=random.choice(USER_AGENTS),
-            viewport={"width": 1280, "height": 800},
-            locale="en-US",
-            timezone_id="America/New_York",
-            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
-        )
-        proxy_cfg = _proxy_config()
-        if proxy_cfg:
-            ctx_kwargs["proxy"] = proxy_cfg
-        context = await browser.new_context(**ctx_kwargs)
-        page = await context.new_page()
-        try:
-            await stealth_async(page)
-        except Exception:
-            pass
-        response = await page.goto(
-            url, wait_until="domcontentloaded", timeout=int(timeout * 1000)
-        )
-        status = response.status if response else 0
-        if status and status >= 400:
-            srv = response.headers.get("server", "?") if response else "?"
-            logger.warning(f"Fetch {url} -> {status} (server={srv})")
-            return None
-        try:
-            await page.wait_for_selector(
-                'script[type="application/ld+json"]', timeout=5000
-            )
-        except Exception:
-            pass
-        return await page.content()
-    except Exception as e:
-        logger.warning(f"Fetch error {url}: {e}")
-        return None
-    finally:
-        if context is not None:
-            try:
-                await context.close()
-            except Exception:
-                pass
-
 
 def _text(el) -> str:
     return el.get_text(strip=True) if el else ""
 
 
-# Shared Playwright browser (singleton) - lazy launch, kept across requests
-_playwright = None
-_browser: Optional[PWBrowser] = None
-_browser_lock = asyncio.Lock()
+async def fetch(url: str, timeout: float = 60.0, polite_delay: bool = True) -> Optional[str]:
+    """Fetch a URL via ScraperAPI. ScraperAPI handles IP rotation and
+    anti-bot bypass (DataDome etc.) on their side.
+    """
+    if polite_delay:
+        await asyncio.sleep(random.uniform(2.0, 3.0))
 
+    api_key = os.environ.get("SCRAPERAPI_KEY")
+    if not api_key:
+        logger.warning("SCRAPERAPI_KEY not set — cannot fetch.")
+        return None
 
-async def get_browser() -> Optional[PWBrowser]:
-    """Lazy-launch and return a shared Chromium browser."""
-    global _playwright, _browser
-    async with _browser_lock:
-        if _browser is not None and _browser.is_connected():
-            return _browser
-        try:
-            if _playwright is None:
-                _playwright = await async_playwright().start()
-            launch_kwargs = dict(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            )
-            proxy_cfg = _proxy_config()
-            if proxy_cfg:
-                launch_kwargs["proxy"] = proxy_cfg
-                logger.info(f"Launching Chromium via proxy {proxy_cfg['server']}")
-            _browser = await _playwright.chromium.launch(**launch_kwargs)
-            logger.info("Playwright Chromium launched.")
-            return _browser
-        except Exception as e:
-            logger.error(f"Playwright launch failed: {e}")
-            return None
-
-
-async def shutdown_browser():
-    global _playwright, _browser
+    endpoint = "http://api.scraperapi.com"
+    params = {"api_key": api_key, "url": url}
     try:
-        if _browser is not None:
-            await _browser.close()
-            _browser = None
-        if _playwright is not None:
-            await _playwright.stop()
-            _playwright = None
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            r = await client.get(endpoint, params=params)
+            if r.status_code >= 400:
+                logger.warning(
+                    f"ScraperAPI {url} -> {r.status_code} body={r.text[:200]!r}"
+                )
+                return None
+            return r.text
     except Exception as e:
-        logger.warning(f"Browser shutdown error: {e}")
+        logger.warning(f"ScraperAPI error {url}: {e}")
+        return None
 
 
 def _iter_jsonld(soup: BeautifulSoup):
@@ -921,7 +774,6 @@ async def on_shutdown():
     global scheduler
     if scheduler:
         scheduler.shutdown(wait=False)
-    await shutdown_browser()
     mongo_client.close()
 
 
