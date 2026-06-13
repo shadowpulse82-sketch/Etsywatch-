@@ -779,10 +779,16 @@ async def on_shutdown():
 
 app.include_router(api_router)
 
+# CORS: when CORS_ORIGINS is "*" we cannot use allow_credentials=True
+# (the spec forbids that combo; the browser preflight fails silently).
+_cors_raw = os.environ.get('CORS_ORIGINS', '*')
+_cors_origins = [o.strip() for o in _cors_raw.split(',') if o.strip()]
+_allow_credentials = '*' not in _cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=_allow_credentials,
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

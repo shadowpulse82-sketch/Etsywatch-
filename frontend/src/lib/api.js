@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const RAW = process.env.REACT_APP_BACKEND_URL || "";
+const BACKEND_URL = RAW.replace(/\/+$/, ""); // strip trailing slash(es)
 export const API = `${BACKEND_URL}/api`;
 
 const SESSION_KEY = "etsywatch_email";

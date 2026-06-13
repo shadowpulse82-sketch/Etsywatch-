@@ -32,7 +32,14 @@ export default function Landing() {
       toast.success("Welcome to EtsyWatch");
       navigate("/dashboard");
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Signup failed");
+      const detail =
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Signup failed";
+      const status = err?.response?.status;
+      toast.error(status ? `Signup failed (${status}): ${detail}` : `Signup failed: ${detail}`);
+      // eslint-disable-next-line no-console
+      console.error("Signup error:", err);
     } finally {
       setLoading(false);
     }
