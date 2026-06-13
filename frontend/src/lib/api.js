@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const RAW = process.env.REACT_APP_BACKEND_URL || "";
+const RAW = process.env.REACT_APP_BACKEND_URL || "https://etsywatch.onrender.com";
 const BACKEND_URL = RAW.replace(/\/+$/, ""); // strip trailing slash(es)
 export const API = `${BACKEND_URL}/api`;
 
