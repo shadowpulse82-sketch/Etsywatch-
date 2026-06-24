@@ -639,7 +639,7 @@ async def add_listing(
     payload: AddListingRequest, current: User = Depends(get_current_user)
 ):
     url = payload.url.strip()
-    if "etsy.com/listing/" not in url:
+if not re.search(r"etsy\.com/(?:[a-z]{2}-[a-z]{2}/)?listing/\d+", url, re.IGNORECASE):
         raise HTTPException(status_code=400, detail="Please paste a valid Etsy listing URL")
 
     # Free plan limit: 3 listings
