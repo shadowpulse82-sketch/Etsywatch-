@@ -638,7 +638,7 @@ async def list_listings(current: User = Depends(get_current_user)):
 async def add_listing(
     payload: AddListingRequest, current: User = Depends(get_current_user)
 ):
-url = payload.url.strip()
+    url = payload.url.strip()
     if not re.search(r"etsy\.com/(?:[a-z]{2}-[a-z]{2}/)?listing/\d+", url, re.IGNORECASE):
         raise HTTPException(status_code=400, detail="Please paste a valid Etsy listing URL")
 
@@ -649,7 +649,6 @@ url = payload.url.strip()
             status_code=402,
             detail="Free plan limit reached (3 listings). Upgrade to Pro for unlimited.",
         )
-
     # Initial fetch & parse
     html = await fetch(url)
     parsed = {"title": "", "price": "", "seller_name": ""}
